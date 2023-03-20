@@ -1,0 +1,14 @@
+{
+	"admin": {
+		"id": 1000000000,
+		"firstName": "John",
+		"lastName": "Doe"
+	},
+	"users": [
+		{
+			"id": 1000000000,
+			"firstName": "John",
+			"lastName": "Doe"
+		}
+	]
+}

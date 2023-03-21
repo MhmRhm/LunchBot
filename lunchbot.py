@@ -8,7 +8,8 @@ from telegram import (
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     Update,
-    User
+    User,
+    Bot
 )
 from telegram.ext import (
     Application,
@@ -19,9 +20,9 @@ from telegram.ext import (
     filters,
 )
 
+bot = None
 users = None
 admin = None
-adminChat = None
 NextState = 1
 
 def readUsers():
@@ -44,17 +45,20 @@ def hasUserPrivileges(effectiveUser: User) -> bool:
 def hasAdminPrivileges(effectiveUser: User) -> bool:
     return effectiveUser["id"] == admin["id"]
 
+async def announce(msg:str) -> None:
+    logging.info(f"announcing {msg}")
+    for user in users:
+        await bot.send_message(chat_id=user["chatid"], text=msg)
+
 async def startCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.info("start command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     await update.message.reply_text(messages.StartMessage)
 
 async def helpCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.info("help command received")
-    logging.info(update.effective_user)
-    global adminChat
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if hasAdminPrivileges(update.effective_user):
-        adminChat = update
         readUsers()
         await update.message.reply_text(messages.AdminHelp)
     elif hasUserPrivileges(update.effective_user):
@@ -64,7 +68,7 @@ async def helpCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def draftCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("draft command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasAdminPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return ConversationHandler.END
@@ -82,7 +86,7 @@ async def draftCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def draftCallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("draft callback invoked")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     logging.info(update.message.text)
     try:
         draftDate = date.fromisoformat(update.message.text)
@@ -95,7 +99,7 @@ async def draftCallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def cancelCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("cancel command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     await update.message.reply_text(messages.OperationCanceled, reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
@@ -109,7 +113,7 @@ draftHandler = ConversationHandler(
 
 async def addItemCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("add command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasAdminPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return ConversationHandler.END
@@ -118,7 +122,7 @@ async def addItemCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def addItemCallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("add callback invoked")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     logging.info(update.message.text)
     db.addMenuOption(update.message.text)
     await update.message.reply_text(messages.ItemAdded, reply_markup=ReplyKeyboardRemove())
@@ -134,7 +138,7 @@ addItemHandler = ConversationHandler(
 
 async def publishCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("publish command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasAdminPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return ConversationHandler.END
@@ -150,11 +154,12 @@ async def publishCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def publishCallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("publish callback invoked")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if update.message.text != "Yes":
         await update.message.reply_text(messages.OperationCanceled, reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     db.publish()
+    await announce(msg="New menu dropped!")
     await update.message.reply_text(messages.PublishAsserted, reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
@@ -168,7 +173,7 @@ publishHandler = ConversationHandler(
 
 async def optionsCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("options command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasUserPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return ConversationHandler.END
@@ -186,14 +191,18 @@ async def optionsCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def optionsCallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("options callback invoked")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     logging.info(update.message.text)
     userInput = -1
-    if 1 <= int(update.message.text) <= len(db.getMenuOptions()):
-        userInput = int(update.message.text)
-    elif update.message.text == "Opt-out":
-        userInput = None
-    if userInput == -1:
+    try:
+        if update.message.text == "Opt-out":
+            userInput = None
+        elif 1 <= int(update.message.text) <= len(db.getMenuOptions()):
+            userInput = int(update.message.text)
+        if userInput == -1:
+            await update.message.reply_text(messages.InvalidInput, reply_markup=ReplyKeyboardRemove())
+            return ConversationHandler.END
+    except:
         await update.message.reply_text(messages.InvalidInput, reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     db.updateUserChoice(idOfUser=update.effective_user["id"], idOfChoice=userInput)
@@ -210,7 +219,7 @@ optionsHandler = ConversationHandler(
 
 async def mineCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.info("mine command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasUserPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return
@@ -222,7 +231,7 @@ async def mineCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             msg = msg + currentChoice.description
         else:
             msg = msg + "Nothing"
-    msg = msg + "\n"
+    msg = msg + "\n\n"
     if nextDate:
         msg = msg + nextDate.date.strftime("%a %b %d, %Y") + "\n"
         if nextChoice:
@@ -233,7 +242,7 @@ async def mineCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def closeCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("close command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasAdminPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return ConversationHandler.END
@@ -249,12 +258,13 @@ async def closeCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def closeCallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("close callback invoked")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     logging.info(update.message.text)
     if update.message.text != "Yes":
         await update.message.reply_text(messages.OperationCanceled, reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
     db.closeOrder()
+    await announce(msg="Order closed!")
     await update.message.reply_text(messages.OrderClosed, reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
@@ -268,7 +278,7 @@ closeHandler = ConversationHandler(
 
 async def previewCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.info("preview command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasAdminPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return
@@ -289,7 +299,7 @@ def generateList(items) -> str:
 
 async def statusCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.info("status command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasAdminPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return
@@ -298,7 +308,7 @@ async def statusCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def reportCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.info("report command received")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     if not hasAdminPrivileges(update.effective_user):
         await update.message.reply_text(messages.UnauthorizedAccess)
         return
@@ -307,18 +317,21 @@ async def reportCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def registerCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("register command received")
-    logging.info(update.effective_user)
-    await update.message.reply_text("Please provide your name or /cancel.")
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
+    if hasUserPrivileges(update.effective_user):
+        await update.message.reply_text(messages.AlreadyRegistered)
+        return ConversationHandler.END
+    await update.message.reply_text(messages.RegisterName)
     return NextState
 
 async def registerCallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.info("register callback invoked")
-    logging.info(update.effective_user)
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
     logging.info(update.message.text)
     with open("toRegister.txt", "a") as file:
-        file.write(f"{update.message.text}, {update.effective_user}\n")
+        file.write(f"{update.message.text}, {update.effective_user}, {update.effective_chat.id}\n")
     await update.message.reply_text(f"""OK "{update.message.text}". """ + messages.RegisterMessage)
-    await adminChat.message.reply_text(f"{update.effective_user}, {update.message.text}")
+    await bot.send_message(chat_id=admin["chatid"], text=f"{update.message.text}, {update.effective_user}, {update.effective_chat}")
     return ConversationHandler.END
 
 registerHandler = ConversationHandler(
@@ -329,10 +342,36 @@ registerHandler = ConversationHandler(
     fallbacks=[MessageHandler(filters.TEXT, cancelCommand)],
 )
 
+async def announceCommand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logging.info("announce command received")
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
+    if not hasAdminPrivileges(update.effective_user):
+        await update.message.reply_text(messages.UnauthorizedAccess)
+        return ConversationHandler.END
+    await update.message.reply_text(messages.AnnounceMessage)
+    return NextState
+
+async def announceCallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logging.info("announce callback invoked")
+    logging.info(f"{update.effective_user}, {update.effective_chat}")
+    logging.info(update.message.text)
+    await announce(update.message.text)
+    return ConversationHandler.END
+
+announceHandler = ConversationHandler(
+    entry_points=[CommandHandler("announce", announceCommand)],
+    states={
+        NextState: [CommandHandler("cancel", cancelCommand), MessageHandler(filters.TEXT, announceCallback)]
+    },
+    fallbacks=[MessageHandler(filters.TEXT, cancelCommand)],
+)
+
 def main() -> None:
-    logging.basicConfig(filename='lunchbot.log', encoding='utf-8', level=logging.INFO)
+    logging.basicConfig(filename="lunchbot.log", encoding='utf-8', level=logging.INFO)
     readUsers()
+    global bot
     application = Application.builder().token(readToken()).build()
+    bot = application.bot
     application.add_handler(CommandHandler("start", startCommand))
     application.add_handler(CommandHandler("help", helpCommand))
     application.add_handler(draftHandler)
@@ -345,6 +384,8 @@ def main() -> None:
     application.add_handler(CommandHandler("status", statusCommand))
     application.add_handler(CommandHandler("report", reportCommand))
     application.add_handler(registerHandler)
+    application.add_handler(announceHandler)
+    application.add_handler(CommandHandler("cancel", cancelCommand))
     application.run_polling()
 
 if __name__ == "__main__":

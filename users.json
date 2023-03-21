@@ -2,13 +2,15 @@
 	"admin": {
 		"id": 1000000000,
 		"firstName": "John",
-		"lastName": "Doe"
+		"lastName": "Doe",
+		"chatid": 1000000000
 	},
 	"users": [
 		{
 			"id": 1000000000,
 			"firstName": "John",
-			"lastName": "Doe"
+			"lastName": "Doe",
+			"chatid": 1000000000
 		}
 	]
 }

@@ -19,7 +19,7 @@ If you republish a draft all user choices will be gone!
 /status gives you status report on next menu
 /report gives you full report on closed menu
 
-/message send announcements to users
+/announce send announcements to users
 
 /options will give the menu for the next day
 /mine will remind you of your choice
@@ -65,4 +65,13 @@ You can use /publish to make the draft accessible.
 """
 RegisterMessage = """
 I will register you as soon as I can. When registered you can use /options.
+"""
+RegisterName = """
+Please provide your name or /cancel.
+"""
+AlreadyRegistered = """
+You are registered. Use /options to see the menu.
+"""
+AnnounceMessage = """
+Type your message to all. Or /cancel.
 """
